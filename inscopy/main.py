@@ -102,7 +102,7 @@ def load_TTL(filename):
 	return output
 
 
-def plot_cells(cells, TTL):
+def plot_cells(cells, TTL, window = None):
 	"""
 	Will plot all the cells in 'cells' and the pulses in TTL. 'Cells' is a
 	DataFrame with the cells as columns and a timeline as index. TTL is a
@@ -110,12 +110,22 @@ def plot_cells(cells, TTL):
 	the outputs of the function 'load_TTL' (but only one value, not the
 	entire dictionary.)
 
+	Window can be used to set the X limits.
+
 	Example:
 
 		>>> cells = load_cells(file_ID + '_test.csv')
 		>>> TTL = load_TTL(file_ID + '_TTL_test.csv')
 		>>> GPIO_1 = TTL['GPIO-1']
 		>>> plot_cells(cells, GPIO_1)
+
+	Another Example
+
+		>>> cells = load_cells(file_ID + '_test.csv')
+		>>> TTL = load_TTL(file_ID + _TTL_test.csv')
+		>>> GPIO_2 = TTL['GPIO-2']
+		>>> plot_cells(cells, GPIO_2, window=[100, 200])
+
 	"""
 
 	# Verify input
@@ -134,6 +144,10 @@ def plot_cells(cells, TTL):
 		ax.axvline(x=i, linestyle='--', color='k', linewidth=0.5)
 	for i in TTL.Stop:
 		ax.axvline(x=i, linestyle='--', color='k', linewidth=0.5)
+
+	# Set X limits
+	if not window==None:
+		plt.xlim(window)
 
 	# Finish up
 	plt.show()
