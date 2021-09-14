@@ -37,6 +37,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import normalization as norm
 from sklearn import metrics
 
 # Settings
@@ -61,10 +62,13 @@ def load_cells(filename):
 
 def load_TTL(filename):
 	"""
-	Loads TTL data as formatted by Inscopix
+	Loads TTL data as formatted by Inscopix. Every channel will be converted
+	into a DataFrame with start and stop times of the pulses. The channels
+	will be storred in a dict with the channel names as keys.
+
 	"""
 
-	# Super annoying that Inscopix puts whitepaces after the commas.
+	# Deal with whitespaces behind the commas.
 	data = pd.read_csv(filename, delimiter=', ', engine='python')
 	data.fillna(0, inplace=True)
 	
@@ -76,6 +80,10 @@ def load_TTL(filename):
 			temp = data[data['Channel Name']==channel].set_index('Time (s)')
 			temp.drop('Channel Name', axis=1, inplace=True)
 
+			# Check if there are any pulses there to begin with
+			if temp.Value.sum() == 0:
+				continue
+
 			# Above threshold (threshold is just half of the max)
 			temp.loc[:, 'High'] = temp.Value>temp.Value.max()/2
 
@@ -85,19 +93,32 @@ def load_TTL(filename):
 			# Find pulse ends
 			temp.loc[:, 'End'] = np.append((~temp.High.iloc[1:].values) & (temp.High.iloc[:-1].values), False)
 
-			# Make sure equal number of starts and stops
-			# TO DO
+			# Grab starts and stops
+			starts = temp.index[temp.Start]
+			stops = temp.index[temp.End]
+
+			# Make sure only complete pulses
+			if stops[0]<starts[0]:
+				stops = stops[1:]
+			if starts[-1]>stops[-1]:
+				starts = starts[:-1]
+
+			# Check if they are the same length
+			if not len(starts) == len(stops):
+				print('Unequal pulse starts and ends.')
+				raise ValueError('Unequal pulse starts and ends.')
 
 			# Grab the pulses
 			temp2 = pd.DataFrame()
-			temp2.loc[:, 'Start'] = temp.index[temp.Start]
-			temp2.loc[:, 'Stop'] = temp.index[temp.End]
+			temp2.loc[:, 'Start'] = starts
+			temp2.loc[:, 'Stop'] = stops
 			temp2.loc[:, 'Duration'] = temp2.Stop - temp2.Start
 
 			output[channel] = temp2
 
 		except:
 			print(f'Unable to grab pulses from: {channel}')
+			print(temp)
 
 	return output
 
@@ -127,9 +148,6 @@ def plot_cells(cells, TTL, window = None):
 		>>> plot_cells(cells, GPIO_2, window=[100, 200])
 
 	"""
-
-	# Verify input
-	# ToDo
 
 	# Make figure
 	fig, ax = plt.subplots(1, tight_layout=True)
@@ -193,7 +211,11 @@ def peri_event(cells, stamps, window = 10):
 
 def normalize_PE(PE_data, method='z-score'):
 	"""
-	Will normalize the data in PE_data the optional methods are:
+	Will normalize the data in PE_data. The input should be a DataFrame
+	with the trials in columns and a timeline in the index or a dict
+	containing multiple of such DataFrames.
+
+	The optional methods are:
 		
 		z-score: 	Z-score normalization on the basis of the baseline
 		min-max: 	Will normalize the entire signal between 0 and 1
@@ -220,65 +242,43 @@ def normalize_PE(PE_data, method='z-score'):
 		print('    - auROC')
 		print('See details in method docstring.')
 		raise ValueError
+	
+	# Figure out if this is only one cell (DataFrame) or a Dict
+	if PE_data.__class__ == pd.DataFrame:
+		PE_data = {'temp':PE_data}
+	
+	# Output is a dict (for now)
+	output = {}
+
+	# Perform normalization
+	for key in PE_data.keys():
+
+		temp = PE_data[key]
+
+		# Z-score normalization
+		if method == 'z-score':
+			output[key] = norm.z_score(temp)
 		
-	# Baseline indexer
-	baseline = PE_data.index<0
+		# Min-max normalization
+		if method =='min-max':
+			output[key] = norm.min_max(temp)
+
+		# Baseline subtraction
+		if method == 'sub_base':
+			output[key] = norm.sub_base(temp)
+
+		# auROC normalization
+		if method == 'auroc':
+			output[key] = norm.auroc(temp)
+
+	# If only one cell, convert back to DataFrame
+	if len(output) == 1:
+		output = output[list(output.keys())[0]]
 	
-	# Z-score normalization
-	if method == 'z-score':
-		new_data = PE_data.copy()
-		new_data = new_data - new_data.iloc[baseline, :].mean(axis=0)
-		new_data = new_data/new_data.iloc[baseline, :].std(axis=0)
-		new_data.signal_type = 'Signal (Z-score)'
-	
-	# Min-max normallization
-	if method =='min-max':
-		new_data = PE_data.copy()
-		new_data = new_data - new_data.min(axis=0)
-		new_data = new_data/new_data.max(axis=0)
-		new_data.signal_type = 'Signal (Normalized)'
-
-	# Baseline subtraction
-	if method == 'sub_base':
-		new_data = PE_data.copy()
-		new_data = new_data - new_data[baseline]
-	
-	# auROC normalization
-	# For explanation see Cohen et al. Nature 2012. There's an excellent
-	# supplementary figure.
-	if method == 'auroc':
-		new_data  = pd.DataFrame(index = PE_data.index, columns=['auROC'])
-
-		# Build a linspace of threshold we will try
-		thresholds = np.linspace(PE_data.min().min(), PE_data.max().max(), 100)
-
-		# Figure out what fraction of baseline above threshold
-		base_points = PE_data[baseline].values.reshape(-1)
-		l = len(base_points)
-		pBaseline = [(sum(base_points>t)/l) for t in thresholds]
-
-		# For every timepoint build ROC
-		l = PE_data.shape[1]
-		for time in new_data.index:
-            
-            # Pandas indexing is actually really slow, so we want to do it only
-            # once every loop.
-			temp = PE_data.loc[time, :].values
-            
-			# Calculate the fraction of trials that the signal is above any threshold
-			pSignal = [(temp>t).sum()/l for t in thresholds]
-			
-			# Calculate the auROC and store it
-			new_data.loc[time, 'auROC'] = metrics.auc(pBaseline, pSignal)
-
-		# Just making sure it's floats not objects or anything
-		new_data = new_data.astype(float)
-		new_data.signal_type = 'auROC'
-		
-	return new_data	
+	return output	
 
 
-def plot_PE(PE_data):
+def plot_PE(PE_data, cmap = 'winter'):
 	"""
 	Will plot the heatmap for individual trials/cells on top and the average
 	as well as SEM below.
@@ -287,7 +287,8 @@ def plot_PE(PE_data):
 		A dataframe with individual trials or cells as columns and the
 		timeline as the index.
 		
-	Note: plot_PE does not normalize the data.
+	Output:
+		Handles to the figure and the subplots.
 	
 	"""
 	
@@ -302,7 +303,7 @@ def plot_PE(PE_data):
 	
 	# Heatmap first
 	sns.heatmap(PE_data.transpose(), ax=axs[0], xticklabels=False, 
-			 yticklabels=False, 
+			 yticklabels=False, cmap = cmap,
 			 cbar_kws={"location": "top", "use_gridspec": False, "label": y_label})
 
 	# Melt the data
@@ -313,6 +314,8 @@ def plot_PE(PE_data):
 	sns.lineplot(y=y_label, x='Time (s)', data=temp, ax=axs[1])
 	plt.show()
 
+	return fig, axs
+
 
 def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 	"""
@@ -320,25 +323,11 @@ def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 	the stamps in 'stamps'. These plots will then be normalized and (if necessary)
 	averaged. Normlized peri-event plots are then returned in one DataFrame.
 
-	normalization methods:
+	For an overview of the normalization methods, see normalize_PE.
 
-		- Z-score:	
-			Generally good, but since you have to averaged over all trials,
-			information about the inter-trial variation is lost.
-		- min-max:
-			Usually not as good as Z-score, unless there is high-baseline
-			variation or super low baselines.
-		- sub_base:
-			Sometimes it's nice to not normalize at all so not to lose intuition
-			for what the raw data looks like. In this case only the baseline is
-			subtracted.
-		- auROC:
-			If there are sufficient trials. This is most likely the best method.
-			This will normalize between 0 and 1 where the baseline is 0.5 and the
-			number reffers to the area under the receiver-operant curve. This
-			means that the inter-trial variation is taken into consideration and
-			single outliers do not have a large effect on the outcome.
-	
+	Note that the data for every cell will be averaged over axis = 1, meaning
+	over the trials. So the output is a 1-D vector for every cell.
+
 	"""
 
 	# Output
@@ -347,23 +336,22 @@ def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 	# Make all peri events
 	PE_data = peri_event(cells, stamps)
 
-	# For every cell
-	for cell in cells.columns:
-		
-		# Deal with multi-index
-		if cell.__class__== tuple:
-			cell = cell[0]
+	# normalize
+	PE_data = normalize_PE(PE_data, method = norm_method)
 
-		# Grab the PE and normalize
-		norm_PE = normalize_PE(PE_data[cell], method=norm_method)
-		signal_type = norm_PE.signal_type # inefficient, but fine
+	# Put it in a dict if it's only one cell
+	if not PE_data.__class__ == dict:
+		PE_data = {'cell':PE_data}
+
+	# For every cell
+	for cell in PE_data.keys():
+
+		# Grab the data
+		norm_PE = PE_data[cell]
 
 		# Do we have to average?
 		if norm_PE.shape[1]>1:
 			norm_PE = norm_PE.mean(axis=1)
-
-		# Rename the data
-		norm_PE.columns = [cell]
 
 		# Store the data
 		results = pd.concat([results, norm_PE], axis=1)
@@ -372,14 +360,11 @@ def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 		print(f'Finished with: {cell}')
 
 	# Store the norm_method in the dataframe (easy for plotting)
-	results.signal_type = signal_type
+	results.signal_type = norm_method
 
 	return results
 
 		
-
-
-
 
 if __name__ == '__main__':
 	try:
@@ -388,7 +373,7 @@ if __name__ == '__main__':
 		file_ID = 'Mouse3_AC1'
 
 	# Set here if you want to run some examples
-	run_examples = True
+	run_examples = False
 
 	# This will load the cells and TLL pulses with the file_ID
 	cells = load_cells(file_ID + '_test.csv')
@@ -411,7 +396,7 @@ if __name__ == '__main__':
 		plt.title('Cell 1 response to CS+ and shock')
 
 		# This example will show the responses of all cells in the dataset
-		data = multi_cell_PE(cells, CS_trials, norm_method='auROC')
+		data = multi_cell_PE(cells, CS_trials, norm_method='Z-score')
 
 		# Sort the cells for going up or down
 		goes_up = data[data.index>0].mean(axis=0)>0.5
