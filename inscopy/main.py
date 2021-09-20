@@ -37,8 +37,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-import normalization as norm
-from sklearn import metrics
+
+# Sub libraries of Inscopy
+try:
+	import normalization as norm
+except:
+	import inscopy.normalization as norm
 
 # Settings
 plt.ion()
@@ -278,19 +282,46 @@ def normalize_PE(PE_data, method='z-score'):
 	return output	
 
 
-def plot_PE(PE_data, cmap = 'winter'):
+def sort_PE(PE_data, sorter=None, method=None):
+	"""
+	Responsible for sorting the trials (or mice) in a PE Dataset.
+
+
+	TODO
+
+
+	"""
+
+	temp = PE_data.transpose()
+	temp['sorter'] = sorter
+	temp = temp.sort_values(by='sorter')
+	temp = temp.drop('sorter', axis=1).transpose()
+	
+	return temp
+
+
+
+def plot_PE(PE_data, cmap = 'viridis', sorter = None):
 	"""
 	Will plot the heatmap for individual trials/cells on top and the average
 	as well as SEM below.
 	
 	Input:
-		A dataframe with individual trials or cells as columns and the
-		timeline as the index.
-		
+		PE_data: A dataframe with individual trials or cells as columns and the
+				 timeline as the index.
+		cmap: 	 the colormap you want to use see: ....TODO...
+		sorter:  If you want the trials/mice in the heatmap in heatmap in a
+				 different order. Pass an array that can be easily sorted.
+
 	Output:
 		Handles to the figure and the subplots.
 	
 	"""
+
+
+	# Should we sort?
+	if not sorter.__class__ == None.__class__:
+		PE_data = sort_PE(PE_data, sorter=sorter)
 	
 	# Figure
 	fig, axs = plt.subplots(2)
@@ -317,7 +348,7 @@ def plot_PE(PE_data, cmap = 'winter'):
 	return fig, axs
 
 
-def multi_cell_PE(cells, stamps, norm_method ='auROC'):
+def multi_cell_PE(cells, stamps, norm_method ='auROC', verbose=False):
 	"""
 	This function will make peri-event plots of all the cells in 'cells' around
 	the stamps in 'stamps'. These plots will then be normalized and (if necessary)
@@ -327,6 +358,7 @@ def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 
 	Note that the data for every cell will be averaged over axis = 1, meaning
 	over the trials. So the output is a 1-D vector for every cell.
+
 
 	"""
 
@@ -357,7 +389,11 @@ def multi_cell_PE(cells, stamps, norm_method ='auROC'):
 		results = pd.concat([results, norm_PE], axis=1)
 
 		# Update the user
-		print(f'Finished with: {cell}')
+		if verbose:
+			print(f'Finished with: {cell}')
+
+	# Update the column names
+	results.columns = cells.columns
 
 	# Store the norm_method in the dataframe (easy for plotting)
 	results.signal_type = norm_method

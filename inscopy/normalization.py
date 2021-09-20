@@ -28,6 +28,11 @@ NOTE: Indentation using tabs instead of spaces!
 @author: Han de Jong
 """
 
+# Dependencies
+import pandas as pd
+import numpy as np
+from sklearn import metrics
+
 def z_score(PE_data, baseline=None):
 	"""
 	Will perform z-score normalization on the peri-event data in PE_data. PE_data
