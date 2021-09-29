@@ -47,6 +47,9 @@ except:
 # Settings
 plt.ion()
 
+# Set here if you want to run some examples
+run_examples = True
+
 
 def load_cells(filename):
 	"""
@@ -318,6 +321,12 @@ def plot_PE(PE_data, cmap = 'viridis', sorter = None):
 	
 	"""
 
+	# Prevent leakage
+	PE_data = PE_data.copy()
+
+	# Deal with multi-level columns
+	if PE_data.columns.nlevels>1:
+		PE_data.columns = PE_data.columns.droplevel(1)
 
 	# Should we sort?
 	if not sorter.__class__ == None.__class__:
@@ -406,10 +415,7 @@ if __name__ == '__main__':
 	try:
 		file_ID = sys.argv[1]
 	except:
-		file_ID = 'Mouse3_AC1'
-
-	# Set here if you want to run some examples
-	run_examples = False
+		file_ID = '../example_data/Mouse3_AC1'
 
 	# This will load the cells and TLL pulses with the file_ID
 	cells = load_cells(file_ID + '_test.csv')
@@ -444,6 +450,5 @@ if __name__ == '__main__':
 		plt.title('All cells that go up')
 		plot_PE(cells_that_go_down)
 		plt.title('All cell that go down')
-
 
 
