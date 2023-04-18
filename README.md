@@ -1,15 +1,13 @@
 # Inscopy
 Inscopy is a set of Python scripts for quick and convenient analysis of Inscopix miniscope data.
 
-## Background
-Inscopix...
 
 ## Input data
 <figure class="image">
 	<img src="assets/Mouse3_AC1_cells.PNG" alt="Example Cells" width=500, height=500 >
 	<figcaption>Overview of the cells included in the example data 'Mouse3_AC1' as identified by the Inscopix software.</figcaption>
 </figure>
-Input data are the .csv files produced by the Inscopix ... software. Usually a recording produces two files. One with the fluorescence of the identified cells and one with TTL stamps.
+Input data are the .csv files. Usually one with the fluorescence of the identified cells and one with TTL stamps.
 
 ## Code
 All functions and classes used in Inscopy are annotated. The most important functions are in the file 'main.py'. This file can be run as a stand alone library if you prefer to do your analysis from the command line. There is a variable called 'run_example' if this variable is set to True (default) it will run some example analysis on the input data.
